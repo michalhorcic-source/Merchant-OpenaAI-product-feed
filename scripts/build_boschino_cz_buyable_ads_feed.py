@@ -35,8 +35,8 @@ def build(products: list[dict]) -> tuple[list[dict[str, str]], dict]:
             rejected["not_approved_for_cz_shopping_ads"] += 1
             continue
         attributes = merchant.value(product, "productAttributes", "product_attributes", "attributes") or {}
-        if merchant.clean(merchant.value(attributes, "availability")).upper() != "IN_STOCK":
-            rejected["not_in_stock"] += 1
+        if merchant.clean(merchant.value(attributes, "availability")).upper() not in {"IN_STOCK", "BACKORDER"}:
+            rejected["availability_not_allowed"] += 1
             continue
         try:
             original = merchant.transform(product)
