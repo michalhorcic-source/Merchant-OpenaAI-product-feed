@@ -92,7 +92,8 @@ def build(products: list[dict]) -> tuple[list[dict[str, str]], dict]:
         except (ValueError, KeyError) as error:
             invalid.append({"item_id": merchant.clean(merchant.value(product, "offerId", "offer_id")), "reason": str(error)})
     if invalid:
-        raise RuntimeError(f"Refusing publication: {len(invalid)} in-stock offers failed validation; examples=" + json.dumps(invalid[:5], ensure_ascii=False))
+        failures = Counter(item["reason"] for item in invalid)
+        raise RuntimeError(f"Refusing publication: {len(invalid)} in-stock offers failed validation; reasons=" + json.dumps(dict(failures), ensure_ascii=False, sort_keys=True))
     if not rows:
         raise RuntimeError("Refusing empty buyable CZ feed")
     rows.sort(key=lambda row: row["id"])
@@ -114,7 +115,11 @@ def main() -> None:
         products = merchant.fetch_products(merchant.load_token(encoded))
     if not isinstance(products, list):
         raise RuntimeError("Expected a products list")
-    rows, report = build(products)
+    try:
+        rows, report = build(products)
+    except RuntimeError as error:
+        merchant.write_utf8(args.report, json.dumps({"status": "validation_failed", "error": str(error), "source_products": len(products)}, ensure_ascii=False, indent=2) + "\n")
+        raise
     buffer = StringIO(newline="")
     writer = csv.DictWriter(buffer, fieldnames=FIELDS, lineterminator="\n")
     writer.writeheader()
