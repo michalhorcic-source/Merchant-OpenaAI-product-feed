@@ -77,9 +77,15 @@ jobs:
           set -euo pipefail
           site_dir="$RUNNER_TEMP/site"
           mkdir -p "$site_dir"
-          python scripts/build_boschino_cz_feed_from_merchant_api.py \
+          if ! python scripts/build_boschino_cz_feed_from_merchant_api.py \
             --output "$site_dir/boschino-cz-buyable-ads.csv" \
-            --report "$RUNNER_TEMP/feed-report.json"
+            --report "$RUNNER_TEMP/feed-report.json" > "$RUNNER_TEMP/feed-build.log" 2>&1; then
+            failure="$(tail -n 1 "$RUNNER_TEMP/feed-build.log")"
+            echo "::error title=Merchant feed build failed::$failure"
+            echo "Merchant feed build failed: \`$failure\`. Existing publication was retained." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/feed-build.log"
           python - "$site_dir/boschino-cz-buyable-ads.csv" "$RUNNER_TEMP/feed-report.json" <<'PY'
           import csv, json, sys
           from collections import Counter
