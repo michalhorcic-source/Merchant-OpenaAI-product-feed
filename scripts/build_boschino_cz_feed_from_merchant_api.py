@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+from collections import Counter
 import json
 import os
 from pathlib import Path
@@ -146,6 +147,18 @@ def load_token(encoded_service_account: str) -> str:
 
 
 def build(products: list[dict[str, Any]]) -> tuple[list[dict[str, str]], dict[str, Any]]:
+    dimensions = {key: Counter() for key in ("feed_label", "store_domain", "currency", "availability")}
+    for product in products:
+        label = str(pick(product, "feedLabel", "feed_label")).upper()
+        dimensions["feed_label"]["CZ" if label == "CZ" else "missing" if not label else "other"] += 1
+        attrs = pick(product, "productAttributes", "product_attributes", "attributes", default={}) or {}
+        host = urlparse(str(pick(attrs, "link", "url"))).hostname or ""
+        dimensions["store_domain"]["boschino.cz" if host == "boschino.cz" else "missing" if not host else "other"] += 1
+        raw_price = pick(attrs, "price", default={})
+        currency = str(pick(raw_price, "currencyCode", "currency_code", "currency")).upper() if isinstance(raw_price, dict) else ""
+        dimensions["currency"]["CZK" if currency == "CZK" or str(raw_price).upper().strip().endswith("CZK") else "missing" if not currency else "other"] += 1
+        availability = str(pick(attrs, "availability")).upper()
+        dimensions["availability"][availability if availability in {"IN_STOCK", "BACKORDER", "OUT_OF_STOCK", "PREORDER"} else "missing" if not availability else "other"] += 1
     sources = [source for product in products if (source := api_product_to_source(product)) is not None]
     rows, report = feed.build(sources)
     report["merchant_api_products"] = len(products)
@@ -153,7 +166,12 @@ def build(products: list[dict[str, Any]]) -> tuple[list[dict[str, str]], dict[st
     # Protect the established 35k-scale feed against incomplete API access,
     # pagination regressions, or a mistakenly narrowed account result.
     if len(rows) < MINIMUM_OFFERS:
-        raise RuntimeError(f"refusing to publish only {len(rows)} offers; expected at least {MINIMUM_OFFERS}")
+        summary = {key: dict(value) for key, value in dimensions.items()}
+        raise RuntimeError(
+            f"refusing to publish {len(rows)} offers; expected at least {MINIMUM_OFFERS}; "
+            f"API products={len(products)}, CZ source candidates={len(sources)}, "
+            f"dimensions={json.dumps(summary, sort_keys=True)}, exclusions={json.dumps(report['excluded'], sort_keys=True)}"
+        )
     return rows, report
 
 

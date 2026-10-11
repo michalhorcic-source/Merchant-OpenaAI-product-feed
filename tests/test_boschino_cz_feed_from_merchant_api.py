@@ -64,6 +64,15 @@ class MerchantApiFeedTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "at least 30000"):
             api_feed.build([self.product])
 
+    def test_low_count_diagnostic_contains_only_aggregate_dimensions(self):
+        with self.assertRaises(RuntimeError) as caught:
+            api_feed.build([self.product])
+        message = str(caught.exception)
+        self.assertIn('"feed_label": {"CZ": 1}', message)
+        self.assertIn('"store_domain": {"boschino.cz": 1}', message)
+        self.assertIn('"currency": {"CZK": 1}', message)
+        self.assertNotIn("offer-123", message)
+
 
 if __name__ == "__main__":
     unittest.main()
