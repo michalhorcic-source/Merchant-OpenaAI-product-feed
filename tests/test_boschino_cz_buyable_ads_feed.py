@@ -51,13 +51,15 @@ class BuyableCzAdsTest(unittest.TestCase):
         self.assertEqual(1, len(rows))
         self.assertEqual(3, report['excluded_by_market_stock_source']['not_in_stock'])
 
-    def test_every_label_is_required(self):
+    def test_missing_google_labels_do_not_exclude_buyable_products(self):
         for index in range(5):
             with self.subTest(index=index):
                 product = copy.deepcopy(self.product)
                 product['productAttributes'].pop(f'customLabel{index}')
-                with self.assertRaisesRegex(RuntimeError, 'empty buyable'):
-                    ads.build([product])
+                rows, report = ads.build([product])
+                self.assertEqual(1, len(rows))
+                self.assertEqual('', rows[0][f'custom_label_{index}'])
+                self.assertEqual(1, report['included'])
 
     def test_duplicate_variant_with_distinct_offer_ids_fails(self):
         self.product['productAttributes']['link'] += '?variant=123'
@@ -80,11 +82,11 @@ class BuyableCzAdsTest(unittest.TestCase):
 
     def test_incomplete_rows_are_excluded_and_reported(self):
         bad = copy.deepcopy(self.product)
-        bad['productAttributes'].pop('customLabel0')
+        bad['productAttributes'].pop('title')
         rows, report = ads.build([self.product, bad])
         self.assertEqual(1, len(rows))
         self.assertEqual(1, report['excluded_invalid_rows'])
-        self.assertIn('custom_label_0', next(iter(report['invalid_row_reasons'])))
+        self.assertIn('missing required offer field', next(iter(report['invalid_row_reasons'])))
 
     def test_variant_group_falls_back_to_stable_product_path(self):
         self.product['productAttributes'].pop('itemGroupId')
@@ -116,7 +118,7 @@ class BuyableCzAdsTest(unittest.TestCase):
                 reader = csv.DictReader(handle)
                 self.assertEqual(ads.FIELDS, reader.fieldnames)
                 self.assertEqual(1, len(list(reader)))
-            self.product['productAttributes'].pop('customLabel0')
+            self.product['productAttributes'].pop('title')
             source.write_text(json.dumps([self.product]))
             result = subprocess.run(command, capture_output=True)
             self.assertNotEqual(0, result.returncode)

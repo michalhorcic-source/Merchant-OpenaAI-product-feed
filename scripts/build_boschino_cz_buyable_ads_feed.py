@@ -65,7 +65,9 @@ def build(products: list[dict]) -> tuple[list[dict[str, str]], dict]:
             }
             for index, field in enumerate(LABEL_FIELDS):
                 row[field] = merchant.clean(merchant.value(attributes, f"customLabel{index}", field))
-            missing = [field for field in CORE_FIELDS + LABEL_FIELDS if not row[field]]
+            # Google custom labels are optional segmentation metadata. Preserve
+            # any populated values, but never use labels to decide inclusion.
+            missing = [field for field in CORE_FIELDS if not row[field]]
             if not row["gtin"] and not row["mpn"] and row["identifier_exists"] != "no":
                 missing.append("gtin or mpn")
             if missing:
