@@ -74,10 +74,6 @@ def build(products: list[dict]) -> tuple[list[dict[str, str]], dict]:
             option_values = tuple(row[field] for field in option_fields if row[field])
             if row["item_group_id"] and not option_values:
                 raise ValueError("grouped variant is missing selected variant attributes")
-            if row["item_group_id"] and (row["item_group_id"], option_values) in seen_group_options:
-                raise ValueError("duplicate option combination in item_group_id")
-            if row["item_group_id"]:
-                seen_group_options.add((row["item_group_id"], option_values))
             parsed = urlparse(row["link"])
             variant = parse_qs(parsed.query).get("variant", [""])[0]
             if variant and not row["item_group_id"]:
@@ -87,6 +83,10 @@ def build(products: list[dict]) -> tuple[list[dict[str, str]], dict]:
                 if key in seen_variants:
                     raise ValueError("duplicate storefront variant")
                 seen_variants.add(key)
+            if row["item_group_id"] and (row["item_group_id"], option_values) in seen_group_options:
+                raise ValueError("duplicate option combination in item_group_id")
+            if row["item_group_id"]:
+                seen_group_options.add((row["item_group_id"], option_values))
             seen_ids.add(row["id"])
             rows.append(row)
         except (ValueError, KeyError) as error:
