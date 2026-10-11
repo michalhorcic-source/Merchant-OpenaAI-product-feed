@@ -50,6 +50,24 @@ jobs:
             --report "$RUNNER_TEMP/boschino-cz-buyable-ads-report.json"
           cp "$RUNNER_TEMP/boschino-cz-buyable-ads.csv" openai/boschino-cz-buyable-ads.csv
           git diff --check
+      - name: Report safe feed validation diagnostics
+        if: failure()
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/boschino-cz-buyable-ads-report.json"
+          if [ -s "$report" ]; then
+            python - "$report" <<'PY'
+          import json, sys
+          report = json.load(open(sys.argv[1], encoding='utf-8'))
+          message = json.dumps(report, ensure_ascii=False, sort_keys=True).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print(f'::error title=Buyable CZ feed validation::{message}')
+          print('### Buyable CZ feed validation failed')
+          print()
+          print('```json')
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          print('```')
+          PY
+          fi
       - name: Save validated feed
         run: |
           set -euo pipefail
