@@ -6,8 +6,13 @@ on:
     paths:
       - '.github/workflows/build-boschino-cz-buyable-ads-feed.yml'
       - 'scripts/build_boschino_cz_feed_from_merchant_export.py'
+      - 'scripts/build_boschino_cz_feed_from_merchant_api.py'
       - 'tests/test_boschino_cz_feed_from_merchant_export.py'
+      - 'tests/test_boschino_cz_feed_from_merchant_api.py'
       - 'openai/boschino-cz-buyable-ads.csv'
+  schedule:
+    - cron: '0 21 * * *'
+    - cron: '0 22 * * *'
   workflow_dispatch:
 
 permissions:
@@ -20,7 +25,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  timezone-gate:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.gate.outputs.should_run }}
+    steps:
+      - name: Run scheduled publication only at 23:00 Prague time
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" != "schedule" ]]; then
+            echo 'should_run=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          local_hour="$(TZ=Europe/Prague date +%H)"
+          if [[ "$local_hour" == '23' ]]; then
+            echo 'should_run=true' >> "$GITHUB_OUTPUT"
+            echo 'The Prague-local daily publication window is open.'
+          else
+            echo 'should_run=false' >> "$GITHUB_OUTPUT"
+            echo "Skipping the paired UTC cron at Prague-local hour $local_hour."
+          fi
+
   build-and-publish:
+    needs: timezone-gate
+    if: needs.timezone-gate.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment:
@@ -34,44 +64,49 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Validate builders
+      - name: Install Merchant API OAuth dependency
+        run: python -m pip install --disable-pip-version-check --no-input 'google-auth==2.38.0'
+      - name: Test feed builders
         env:
           PYTHONDONTWRITEBYTECODE: '1'
         run: python -m unittest discover -s tests -v
-      - name: Validate committed public feed
+      - name: Fetch all CZ products and build the current feed
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON_B64 }}
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import csv
-          from pathlib import Path
+          site_dir="$RUNNER_TEMP/site"
+          mkdir -p "$site_dir"
+          python scripts/build_boschino_cz_feed_from_merchant_api.py \
+            --output "$site_dir/boschino-cz-buyable-ads.csv" \
+            --report "$RUNNER_TEMP/feed-report.json"
+          python - "$site_dir/boschino-cz-buyable-ads.csv" "$RUNNER_TEMP/feed-report.json" <<'PY'
+          import csv, json, sys
+          from collections import Counter
           from decimal import Decimal
-          p=Path('openai/boschino-cz-buyable-ads.csv')
-          with p.open(encoding='utf-8', newline='') as f:
-              reader=csv.DictReader(f)
-              rows=list(reader)
-          required={'id','title','description','link','image_link','availability','price','brand'}
+          from pathlib import Path
+          feed_path, report_path = map(Path, sys.argv[1:])
+          report=json.loads(report_path.read_text(encoding='utf-8'))
+          with feed_path.open(encoding='utf-8', newline='') as f:
+              reader=csv.DictReader(f); rows=list(reader)
+          required={'id','title','description','link','image_link','availability','price','brand','gtin','mpn','identifier_exists'}
           labels={f'custom_label_{i}' for i in range(5)}
           if not (required | labels) <= set(reader.fieldnames or []): raise SystemExit('Feed header is missing required fields')
-          if not rows: raise SystemExit('Feed is empty')
+          if len(rows)<30000 or len(rows)!=report['included']: raise SystemExit('Incomplete feed or row count mismatch')
           for line,row in enumerate(rows,2):
               if any(not row[field].strip() for field in required): raise SystemExit(f'Blank required field on CSV line {line}')
               if row['availability'] not in {'in_stock','backorder'}: raise SystemExit(f'Unexpected availability on CSV line {line}')
               if not row['price'].endswith(' CZK') or Decimal(row['price'].split()[0])<=0: raise SystemExit(f'Invalid price on CSV line {line}')
               if row['identifier_exists']!='no' and not (row['gtin'] or row['mpn']): raise SystemExit(f'Missing identifier on CSV line {line}')
-          print(f'Validated {len(rows)} offers; availability limited to in_stock/backorder; all five label columns present')
-          with open(__import__('os').environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as summary:
-              from collections import Counter
-              counts=Counter(row['availability'] for row in rows)
-              summary.write(f'Validated **{len(rows)}** offers. Availability: `{dict(counts)}`.\n')
+          counts=Counter(row['availability'] for row in rows)
+          summary=Path(__import__('os').environ['GITHUB_STEP_SUMMARY'])
+          summary.write_text(f"Merchant API products: **{report['merchant_api_products']}**\n\nCZ stock/backorder candidates: **{report['cz_store_czk_stock_or_backorder']}**\n\nPublished offers: **{len(rows)}** ({dict(counts)}).\n", encoding='utf-8')
+          print(f"Validated {len(rows)} offers; API products={report['merchant_api_products']}; availability={dict(counts)}")
           PY
-      - name: Verify clean checkout
-        run: |
-          set -euo pipefail
-          git diff --check
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: openai
+          path: ${{ runner.temp }}/site
       - name: Publish public feed
         id: deployment
         uses: actions/deploy-pages@v4
