@@ -4,7 +4,7 @@ This separate export leaves the existing CZ/SK full feeds unchanged. It follows 
 
 The CSV uses the Google-compatible names: id, title, description, link, image_link, availability, price, and brand. It includes assigned gtin/mpn identifiers, item_group_id and available selected variant attributes, sale_price, and custom_label_0 through custom_label_4. The feed registration supplies seller identity and Ads eligibility; row-level seller_name and is_ads_eligible do not override Google-compatible feed settings. Price is always populated. Sale price is blank when the source has no valid discounted price. No values are invented to fill missing Google labels.
 
-The generator reads the current configured CZ Merchant API account/data source and retains IN_STOCK offers approved for CZ Shopping Ads. Missing required export fields or labels, invalid prices, wrong storefront URLs, duplicate item IDs or duplicate storefront variant IDs prevent publication. Empty results also fail. Approval and reported stock are Merchant data, not a live checkout verification.
+The generator reads the current configured CZ Merchant API account/data source and retains IN_STOCK offers approved for CZ Shopping Ads. It excludes individual rows missing required export fields or labels, invalid prices, identifiers, or valid variant grouping, and reports reason counts. Empty results prevent publication. Approval and reported stock are Merchant data, not a live checkout verification. If a variant URL includes a Shopify variant ID but Merchant omits item_group_id, the stable product path becomes the parent group ID.
 
 Run tests with the environment's Python virtual environment:
 

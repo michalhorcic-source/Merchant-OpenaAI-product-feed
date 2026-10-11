@@ -49,14 +49,14 @@ class BuyableCzAdsTest(unittest.TestCase):
         other_source['dataSource'] = 'another-source'
         rows, report = ads.build([self.product, *excluded, wrong_market, other_source])
         self.assertEqual(1, len(rows))
-        self.assertEqual(3, report['excluded']['not_in_stock'])
+        self.assertEqual(3, report['excluded_by_market_stock_source']['not_in_stock'])
 
     def test_every_label_is_required(self):
         for index in range(5):
             with self.subTest(index=index):
                 product = copy.deepcopy(self.product)
                 product['productAttributes'].pop(f'customLabel{index}')
-                with self.assertRaisesRegex(RuntimeError, f'custom_label_{index}'):
+                with self.assertRaisesRegex(RuntimeError, 'empty buyable'):
                     ads.build([product])
 
     def test_duplicate_variant_with_distinct_offer_ids_fails(self):
@@ -64,8 +64,10 @@ class BuyableCzAdsTest(unittest.TestCase):
         self.product['productAttributes']['itemGroupId'] = 'PARENT-SKU'
         duplicate = copy.deepcopy(self.product)
         duplicate['offerId'] = 'different-merchant-id'
-        with self.assertRaisesRegex(RuntimeError, 'duplicate storefront variant'):
-            ads.build([self.product, duplicate])
+        rows, report = ads.build([self.product, duplicate])
+        self.assertEqual(1, len(rows))
+        self.assertEqual(1, report['excluded_invalid_rows'])
+        self.assertEqual('duplicate storefront variant', next(iter(report['invalid_row_reasons'])))
 
     def test_bad_price_and_wrong_storefront_fail(self):
         product = copy.deepcopy(self.product)
@@ -75,6 +77,29 @@ class BuyableCzAdsTest(unittest.TestCase):
         self.product['productAttributes']['link'] = 'https://boschino.sk/products/item'
         with self.assertRaisesRegex(RuntimeError, 'CZ storefront'):
             ads.build([self.product])
+
+    def test_incomplete_rows_are_excluded_and_reported(self):
+        bad = copy.deepcopy(self.product)
+        bad['productAttributes'].pop('customLabel0')
+        rows, report = ads.build([self.product, bad])
+        self.assertEqual(1, len(rows))
+        self.assertEqual(1, report['excluded_invalid_rows'])
+        self.assertIn('custom_label_0', next(iter(report['invalid_row_reasons'])))
+
+    def test_variant_group_falls_back_to_stable_product_path(self):
+        self.product['productAttributes'].pop('itemGroupId')
+        self.product['productAttributes']['link'] += '?variant=123'
+        rows, _ = ads.build([self.product])
+        self.assertEqual('boschino-cz:/products/sku-1', rows[0]['item_group_id'])
+
+    def test_missing_identifiers_require_explicit_identifier_exists_false(self):
+        self.product['productAttributes'].pop('gtin')
+        self.product['productAttributes'].pop('mpn')
+        with self.assertRaisesRegex(RuntimeError, 'gtin or mpn'):
+            ads.build([self.product])
+        self.product['productAttributes']['identifierExists'] = False
+        row = ads.build([self.product])[0][0]
+        self.assertEqual('no', row['identifier_exists'])
 
     def test_cli_creates_csv_and_does_not_overwrite_on_failure(self):
         with tempfile.TemporaryDirectory() as directory:

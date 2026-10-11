@@ -16,7 +16,7 @@ import build_boschino_cz_feed as merchant
 
 CORE_FIELDS = ["id", "title", "description", "link", "image_link", "availability", "price", "brand"]
 LABEL_FIELDS = [f"custom_label_{index}" for index in range(5)]
-OPTIONAL_FIELDS = ["gtin", "mpn", "item_group_id", "color", "size", "material", "pattern", "age_group", "gender", "sale_price"]
+OPTIONAL_FIELDS = ["gtin", "mpn", "identifier_exists", "item_group_id", "color", "size", "material", "pattern", "age_group", "gender", "sale_price"]
 FIELDS = CORE_FIELDS + OPTIONAL_FIELDS[:-1] + ["sale_price"] + LABEL_FIELDS
 
 
@@ -40,13 +40,21 @@ def build(products: list[dict]) -> tuple[list[dict[str, str]], dict]:
             continue
         try:
             original = merchant.transform(product)
+            parsed_link = urlparse(original["url"])
+            source_group_id = merchant.clean(merchant.value(attributes, "itemGroupId", "item_group_id"))
+            variant_id = parse_qs(parsed_link.query).get("variant", [""])[0]
+            group_id = source_group_id
+            if variant_id and not group_id:
+                group_id = f"boschino-cz:{parsed_link.path.rstrip('/')}"
+            identifier_exists = "no" if merchant.value(attributes, "identifierExists", "identifier_exists") is False else "yes"
             row = {
                 "id": original["item_id"], "title": original["title"],
                 "description": original["description"], "link": original["url"],
                 "image_link": original["image_url"], "availability": original["availability"],
                 "price": original["price"], "brand": original["brand"],
                 "gtin": original["gtin"], "mpn": original["mpn"],
-                "item_group_id": merchant.clean(merchant.value(attributes, "itemGroupId", "item_group_id")),
+                "identifier_exists": identifier_exists,
+                "item_group_id": group_id,
                 "color": merchant.clean(merchant.value(attributes, "color")),
                 "size": merchant.clean(merchant.value(attributes, "size")),
                 "material": merchant.clean(merchant.value(attributes, "material")),
@@ -58,7 +66,7 @@ def build(products: list[dict]) -> tuple[list[dict[str, str]], dict]:
             for index, field in enumerate(LABEL_FIELDS):
                 row[field] = merchant.clean(merchant.value(attributes, f"customLabel{index}", field))
             missing = [field for field in CORE_FIELDS + LABEL_FIELDS if not row[field]]
-            if not row["gtin"] and not row["mpn"]:
+            if not row["gtin"] and not row["mpn"] and row["identifier_exists"] != "no":
                 missing.append("gtin or mpn")
             if missing:
                 raise ValueError("missing fields: " + ", ".join(missing))
@@ -91,13 +99,11 @@ def build(products: list[dict]) -> tuple[list[dict[str, str]], dict]:
             rows.append(row)
         except (ValueError, KeyError) as error:
             invalid.append({"item_id": merchant.clean(merchant.value(product, "offerId", "offer_id")), "reason": str(error)})
-    if invalid:
-        failures = Counter(item["reason"] for item in invalid)
-        raise RuntimeError(f"Refusing publication: {len(invalid)} in-stock offers failed validation; reasons=" + json.dumps(dict(failures), ensure_ascii=False, sort_keys=True))
+    failures = Counter(item["reason"] for item in invalid)
     if not rows:
-        raise RuntimeError("Refusing empty buyable CZ feed")
+        raise RuntimeError("Refusing empty buyable CZ feed; invalid_row_reasons=" + json.dumps(dict(failures), ensure_ascii=False, sort_keys=True))
     rows.sort(key=lambda row: row["id"])
-    return rows, {"generated_at": datetime.now(timezone.utc).isoformat(), "source_products": len(products), "included": len(rows), "excluded": dict(rejected), "fields": FIELDS}
+    return rows, {"generated_at": datetime.now(timezone.utc).isoformat(), "source_products": len(products), "included": len(rows), "excluded_by_market_stock_source": dict(rejected), "excluded_invalid_rows": len(invalid), "invalid_row_reasons": dict(failures), "fields": FIELDS}
 
 
 def main() -> None:
