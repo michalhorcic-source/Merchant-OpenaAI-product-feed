@@ -50,6 +50,25 @@ jobs:
             --report "$RUNNER_TEMP/boschino-cz-buyable-ads-report.json"
           cp "$RUNNER_TEMP/boschino-cz-buyable-ads.csv" openai/boschino-cz-buyable-ads.csv
           git diff --check
+      - name: Summarize safe feed counts
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP/boschino-cz-buyable-ads-report.json" <<'PY'
+          import json, sys
+          report = json.load(open(sys.argv[1], encoding='utf-8'))
+          summary = {
+              'source_products': report.get('source_products'),
+              'included': report.get('included'),
+              'excluded_by_availability': report.get('excluded_by_availability', {}),
+              'excluded_invalid_rows': report.get('excluded_invalid_rows'),
+              'invalid_row_reasons': report.get('invalid_row_reasons', {}),
+          }
+          print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
+          with open(__import__('os').environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as output:
+              output.write('### Buyable CZ feed counts\n\n```json\n')
+              output.write(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+              output.write('\n```\n')
+          PY
       - name: Report safe feed validation diagnostics
         if: failure()
         run: |
