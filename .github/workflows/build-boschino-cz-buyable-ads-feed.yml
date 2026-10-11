@@ -65,7 +65,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install Merchant API OAuth dependency
-        run: python -m pip install --disable-pip-version-check --no-input 'google-auth==2.38.0'
+        run: python -m pip install --disable-pip-version-check --no-input 'google-auth[requests]==2.38.0'
       - name: Test feed builders
         env:
           PYTHONDONTWRITEBYTECODE: '1'
