@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urlparse
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import build_boschino_cz_feed_from_merchant_export as feed
@@ -101,8 +102,18 @@ def fetch_products(token: str) -> list[dict[str, Any]]:
         try:
             with urlopen(request, timeout=120) as response:
                 payload = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            api_status = "unknown"
+            try:
+                error = json.loads(exc.read().decode("utf-8")).get("error", {})
+                candidate = str(error.get("status", "unknown"))
+                if candidate.replace("_", "").isalnum():
+                    api_status = candidate
+            except Exception:
+                pass
+            raise RuntimeError(f"Merchant API products.list failed (HTTP {exc.code}; API status {api_status})") from None
         except Exception as exc:
-            raise RuntimeError("Merchant API products.list request failed") from exc
+            raise RuntimeError(f"Merchant API products.list failed ({type(exc).__name__})") from None
         batch = payload.get("products")
         if not isinstance(batch, list):
             raise RuntimeError("Merchant API response has no products list")
@@ -128,7 +139,7 @@ def load_token(encoded_service_account: str) -> str:
         )
         credentials.refresh(GoogleRequest())
     except Exception as exc:
-        raise RuntimeError("could not obtain Merchant API OAuth token from configured service account") from exc
+        raise RuntimeError(f"could not obtain Merchant API OAuth token ({type(exc).__name__})") from None
     if not credentials.token:
         raise RuntimeError("service account did not return an OAuth token")
     return credentials.token
