@@ -52,13 +52,16 @@ class BuyableCzAdsTest(unittest.TestCase):
         wrong_market['productAttributes']['itemGroupId'] = 'PARENT-WM'
         wrong_market['productStatus']['destinationStatuses'][0]['approvedCountries'] = ['SK']
         other_source = copy.deepcopy(self.product)
+        other_source['offerId'] = 'SKU-OTHER-SOURCE'
+        other_source['productAttributes']['itemGroupId'] = 'PARENT-OTHER-SOURCE'
         other_source['dataSource'] = 'another-source'
         rows, report = ads.build([self.product, backorder, *excluded, wrong_market, other_source])
-        self.assertEqual(3, len(rows))
+        self.assertEqual(4, len(rows))
         self.assertEqual({'in_stock', 'backorder'}, {row['availability'] for row in rows})
         self.assertIn('SKU-WM', {row['id'] for row in rows})
         self.assertIn('SKU-BO', {row['id'] for row in rows})
-        self.assertEqual(2, report['excluded_by_source_or_availability']['availability_not_allowed'])
+        self.assertIn('SKU-OTHER-SOURCE', {row['id'] for row in rows})
+        self.assertEqual(2, report['excluded_by_availability']['availability_not_allowed'])
 
     def test_missing_google_labels_do_not_exclude_buyable_products(self):
         for index in range(5):
