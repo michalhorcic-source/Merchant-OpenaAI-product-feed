@@ -37,7 +37,7 @@ class BuyableCzAdsTest(unittest.TestCase):
         self.assertEqual('', row['sale_price'])
         self.assertEqual('1234.00 CZK', row['price'])
 
-    def test_only_in_stock_and_backorder_availability_are_included(self):
+    def test_only_in_stock_and_backorder_are_included_independent_of_google_ads_approval(self):
         excluded = []
         for status in ['OUT_OF_STOCK', 'PREORDER']:
             product = copy.deepcopy(self.product)
@@ -48,13 +48,17 @@ class BuyableCzAdsTest(unittest.TestCase):
         backorder['productAttributes']['availability'] = 'BACKORDER'
         backorder['productAttributes']['itemGroupId'] = 'PARENT-BO'
         wrong_market = copy.deepcopy(self.product)
+        wrong_market['offerId'] = 'SKU-WM'
+        wrong_market['productAttributes']['itemGroupId'] = 'PARENT-WM'
         wrong_market['productStatus']['destinationStatuses'][0]['approvedCountries'] = ['SK']
         other_source = copy.deepcopy(self.product)
         other_source['dataSource'] = 'another-source'
         rows, report = ads.build([self.product, backorder, *excluded, wrong_market, other_source])
-        self.assertEqual(2, len(rows))
+        self.assertEqual(3, len(rows))
         self.assertEqual({'in_stock', 'backorder'}, {row['availability'] for row in rows})
-        self.assertEqual(2, report['excluded_by_market_stock_source']['availability_not_allowed'])
+        self.assertIn('SKU-WM', {row['id'] for row in rows})
+        self.assertIn('SKU-BO', {row['id'] for row in rows})
+        self.assertEqual(2, report['excluded_by_source_or_availability']['availability_not_allowed'])
 
     def test_missing_google_labels_do_not_exclude_buyable_products(self):
         for index in range(5):

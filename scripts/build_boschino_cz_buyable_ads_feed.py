@@ -31,9 +31,6 @@ def build(products: list[dict]) -> tuple[list[dict[str, str]], dict]:
         if merchant.clean(merchant.value(product, "dataSource", "data_source")) != merchant.DATA_SOURCE:
             rejected["other_data_source"] += 1
             continue
-        if not merchant.is_shopping_ads_cz(product):
-            rejected["not_approved_for_cz_shopping_ads"] += 1
-            continue
         attributes = merchant.value(product, "productAttributes", "product_attributes", "attributes") or {}
         if merchant.clean(merchant.value(attributes, "availability")).upper() not in {"IN_STOCK", "BACKORDER"}:
             rejected["availability_not_allowed"] += 1
@@ -105,7 +102,7 @@ def build(products: list[dict]) -> tuple[list[dict[str, str]], dict]:
     if not rows:
         raise RuntimeError("Refusing empty buyable CZ feed; invalid_row_reasons=" + json.dumps(dict(failures), ensure_ascii=False, sort_keys=True))
     rows.sort(key=lambda row: row["id"])
-    return rows, {"generated_at": datetime.now(timezone.utc).isoformat(), "source_products": len(products), "included": len(rows), "excluded_by_market_stock_source": dict(rejected), "excluded_invalid_rows": len(invalid), "invalid_row_reasons": dict(failures), "fields": FIELDS}
+    return rows, {"generated_at": datetime.now(timezone.utc).isoformat(), "source_products": len(products), "included": len(rows), "excluded_by_source_or_availability": dict(rejected), "excluded_invalid_rows": len(invalid), "invalid_row_reasons": dict(failures), "fields": FIELDS}
 
 
 def main() -> None:
