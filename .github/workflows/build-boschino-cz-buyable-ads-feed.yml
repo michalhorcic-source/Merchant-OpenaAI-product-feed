@@ -5,12 +5,13 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/build-boschino-cz-buyable-ads-feed.yml'
-      - 'scripts/build_boschino_cz_buyable_ads_feed.py'
-      - 'tests/test_boschino_cz_buyable_ads_feed.py'
+      - 'scripts/build_boschino_cz_feed_from_merchant_export.py'
+      - 'tests/test_boschino_cz_feed_from_merchant_export.py'
+      - 'openai/boschino-cz-buyable-ads.csv'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -33,78 +34,40 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install OAuth dependencies
-        run: python -m pip install --disable-pip-version-check --no-input 'google-auth[requests]==2.38.0'
       - name: Validate builders
         env:
           PYTHONDONTWRITEBYTECODE: '1'
         run: python -m unittest discover -s tests -v
-      - name: Read current Merchant offers and build validated CSV
-        env:
-          GOOGLE_SERVICE_ACCOUNT_JSON_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON_B64 }}
-          PYTHONDONTWRITEBYTECODE: '1'
+      - name: Validate committed public feed
         run: |
           set -euo pipefail
-          python scripts/build_boschino_cz_buyable_ads_feed.py \
-            --output "$RUNNER_TEMP/boschino-cz-buyable-ads.csv" \
-            --report "$RUNNER_TEMP/boschino-cz-buyable-ads-report.json"
-          cp "$RUNNER_TEMP/boschino-cz-buyable-ads.csv" openai/boschino-cz-buyable-ads.csv
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+          from decimal import Decimal
+          p=Path('openai/boschino-cz-buyable-ads.csv')
+          with p.open(encoding='utf-8', newline='') as f:
+              reader=csv.DictReader(f)
+              rows=list(reader)
+          required={'id','title','description','link','image_link','availability','price','brand'}
+          labels={f'custom_label_{i}' for i in range(5)}
+          if not (required | labels) <= set(reader.fieldnames or []): raise SystemExit('Feed header is missing required fields')
+          if not rows: raise SystemExit('Feed is empty')
+          for line,row in enumerate(rows,2):
+              if any(not row[field].strip() for field in required): raise SystemExit(f'Blank required field on CSV line {line}')
+              if row['availability'] not in {'in_stock','backorder'}: raise SystemExit(f'Unexpected availability on CSV line {line}')
+              if not row['price'].endswith(' CZK') or Decimal(row['price'].split()[0])<=0: raise SystemExit(f'Invalid price on CSV line {line}')
+              if row['identifier_exists']!='no' and not (row['gtin'] or row['mpn']): raise SystemExit(f'Missing identifier on CSV line {line}')
+          print(f'Validated {len(rows)} offers; availability limited to in_stock/backorder; all five label columns present')
+          with open(__import__('os').environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as summary:
+              from collections import Counter
+              counts=Counter(row['availability'] for row in rows)
+              summary.write(f'Validated **{len(rows)}** offers. Availability: `{dict(counts)}`.\n')
+          PY
+      - name: Verify clean checkout
+        run: |
+          set -euo pipefail
           git diff --check
-      - name: Summarize safe feed counts
-        run: |
-          set -euo pipefail
-          python - "$RUNNER_TEMP/boschino-cz-buyable-ads-report.json" <<'PY'
-          import json, sys
-          report = json.load(open(sys.argv[1], encoding='utf-8'))
-          summary = {
-              'source_products': report.get('source_products'),
-              'included': report.get('included'),
-              'excluded_by_availability': report.get('excluded_by_availability', {}),
-              'excluded_invalid_rows': report.get('excluded_invalid_rows'),
-              'invalid_row_reasons': report.get('invalid_row_reasons', {}),
-          }
-          print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
-          with open(__import__('os').environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as output:
-              output.write('### Buyable CZ feed counts\n\n```json\n')
-              output.write(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
-              output.write('\n```\n')
-          PY
-      - name: Report safe feed validation diagnostics
-        if: failure()
-        run: |
-          set -euo pipefail
-          report="$RUNNER_TEMP/boschino-cz-buyable-ads-report.json"
-          if [ -s "$report" ]; then
-            python - "$report" <<'PY'
-          import json, sys
-          report = json.load(open(sys.argv[1], encoding='utf-8'))
-          message = json.dumps(report, ensure_ascii=False, sort_keys=True).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-          print(f'::error title=Buyable CZ feed validation::{message}')
-          print('### Buyable CZ feed validation failed')
-          print()
-          print('```json')
-          print(json.dumps(report, ensure_ascii=False, indent=2))
-          print('```')
-          PY
-          fi
-      - name: Save validated feed
-        run: |
-          set -euo pipefail
-          git add -- openai/boschino-cz-buyable-ads.csv
-          if ! git diff --cached --quiet; then
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'Publish buyable Boschino CZ Ads feed with five labels [skip ci]'
-            git push origin HEAD:main
-          fi
-      - name: Retain validation report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: boschino-cz-buyable-ads-validation
-          path: ${{ runner.temp }}/boschino-cz-buyable-ads-report.json
-          retention-days: 7
-          if-no-files-found: ignore
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
