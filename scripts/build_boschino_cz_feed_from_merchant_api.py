@@ -42,9 +42,6 @@ def api_money(value: Any) -> str:
 
 
 def api_product_to_source(product: dict[str, Any]) -> dict[str, str] | None:
-    feed_label = str(pick(product, "feedLabel", "feed_label")).upper()
-    if feed_label not in {"CZ", "CZ1"}:
-        return None
     attrs = pick(product, "productAttributes", "product_attributes", "attributes", default={}) or {}
     link = str(pick(attrs, "link", "url"))
     parsed = urlparse(link)
