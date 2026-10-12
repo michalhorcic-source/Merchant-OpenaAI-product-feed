@@ -8,8 +8,11 @@ on:
       - 'scripts/build_boschino_cz_feed_from_merchant_export.py'
       - 'scripts/build_boschino_cz_feed_from_merchant_api.py'
       - 'scripts/build_boschino_cz_feed_a.py'
+      - 'scripts/build_boschino_cz_feed_b.py'
       - 'tests/test_boschino_cz_feed_from_merchant_export.py'
       - 'tests/test_boschino_cz_feed_from_merchant_api.py'
+      - 'tests/test_boschino_cz_feed_b.py'
+      - 'docs/boschino-cz-buyable-ads-feed.md'
       - 'openai/boschino-cz-buyable-ads.csv'
   schedule:
     - cron: '0 21 * * *'
@@ -131,6 +134,44 @@ jobs:
               out.write(f"\\nCZ Feed A: **{len(rows)}** matching products.\\n")
           print(f"Validated CZ Feed A: {len(rows)} products")
           PY
+      - name: Build CZ Feed B or retain a validated prior B
+        env:
+          B_PUBLIC_URL: https://michalhorcic-source.github.io/Merchant-OpenaAI-product-feed/boschino-ads-cz-feed-b.csv
+        shell: bash
+        run: |
+          set -euo pipefail
+          site_dir="$RUNNER_TEMP/site"
+          full_path="$site_dir/boschino-cz-buyable-ads.csv"
+          b_path="$site_dir/boschino-ads-cz-feed-b.csv"
+          python scripts/build_boschino_cz_feed_b.py \
+            --input "$full_path" \
+            --output "$b_path" \
+            --skip-empty
+          validate_b() {
+            python scripts/build_boschino_cz_feed_b.py \
+              --input "$full_path" \
+              --output "$1" \
+              --validate-published
+          }
+          if [[ -f "$b_path" ]]; then
+            validate_b "$b_path"
+            echo "CZ Feed B: freshly built and validated." >> "$GITHUB_STEP_SUMMARY"
+          else
+            if python scripts/build_boschino_cz_feed_b.py \
+              --input "$full_path" \
+              --output "$b_path" \
+              --retain-prior-url "$B_PUBLIC_URL"; then
+              if [[ -f "$b_path" ]]; then
+                validate_b "$b_path"
+                echo "CZ Feed B: zero current matches; retained validated prior public B." >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo "CZ Feed B: zero current matches and no prior B exists; no B file is published yet." >> "$GITHUB_STEP_SUMMARY"
+              fi
+            else
+              echo 'Could not retrieve or validate the previous Feed B; refusing publication.' >&2
+              exit 1
+            fi
+          fi
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
