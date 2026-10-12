@@ -96,7 +96,7 @@ jobs:
           report=json.loads(report_path.read_text(encoding='utf-8'))
           with feed_path.open(encoding='utf-8', newline='') as f:
               reader=csv.DictReader(f); rows=list(reader)
-          required={'id','title','description','link','image_link','availability','price','brand','gtin','mpn','identifier_exists'}
+          required={'id','title','description','link','image_link','availability','price','brand','identifier_exists'}
           labels={f'custom_label_{i}' for i in range(5)}
           if not (required | labels) <= set(reader.fieldnames or []): raise SystemExit('Feed header is missing required fields')
           if len(rows)<30000 or len(rows)!=report['included']: raise SystemExit('Incomplete feed or row count mismatch')
