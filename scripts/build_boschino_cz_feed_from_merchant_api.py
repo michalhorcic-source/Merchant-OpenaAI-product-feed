@@ -43,7 +43,7 @@ def api_money(value: Any) -> str:
 
 def api_product_to_source(product: dict[str, Any]) -> dict[str, str] | None:
     feed_label = str(pick(product, "feedLabel", "feed_label")).upper()
-    if feed_label != "CZ":
+    if feed_label not in {"CZ", "CZ1"}:
         return None
     attrs = pick(product, "productAttributes", "product_attributes", "attributes", default={}) or {}
     link = str(pick(attrs, "link", "url"))
@@ -150,7 +150,7 @@ def build(products: list[dict[str, Any]]) -> tuple[list[dict[str, str]], dict[st
     dimensions = {key: Counter() for key in ("feed_label", "store_domain", "currency", "availability")}
     for product in products:
         label = str(pick(product, "feedLabel", "feed_label")).upper()
-        dimensions["feed_label"]["CZ" if label == "CZ" else "missing" if not label else "other"] += 1
+        dimensions["feed_label"]["CZ" if label == "CZ" else "CZ1" if label == "CZ1" else "missing" if not label else "other"] += 1
         attrs = pick(product, "productAttributes", "product_attributes", "attributes", default={}) or {}
         host = urlparse(str(pick(attrs, "link", "url"))).hostname or ""
         dimensions["store_domain"]["boschino.cz" if host == "boschino.cz" else "missing" if not host else "other"] += 1
